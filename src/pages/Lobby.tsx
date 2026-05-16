@@ -364,7 +364,7 @@ function Lobby() {
       {/* Back button */}
       <button
         onClick={() => navigate('/')}
-        className="absolute top-5 left-5 sm:top-6 sm:left-6 text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-sm z-10"
+        className="absolute top-5 left-5 sm:top-6 sm:left-6 text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-sm z-50"
       >
         <X className="w-4 h-4" /> Cancel
       </button>
