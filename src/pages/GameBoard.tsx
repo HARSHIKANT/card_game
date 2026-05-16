@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useGameStore } from '../store/useGameStore';
 import { useBotEngine } from '../lib/useBotEngine';
 import Card from '../components/Card';
+import LiveChat from '../components/LiveChat';
 import { Loader2, Clock, WifiOff, History, X } from 'lucide-react';
 import { GameRole, PlayerCard } from '../types';
 import CricketAnimationPanel from '../components/CricketAnimationPanel';
@@ -449,6 +450,15 @@ const GameBoard: React.FC = () => {
       </div>
 
       <PlayHistorySidebar />
+
+      {/* Live Match Chat */}
+      {roomId && user && (
+        <LiveChat
+          channelId={`chat_match_${roomId}`}
+          userId={user.id}
+          userName={profile?.username || 'Player'}
+        />
+      )}
 
       {/* Middle Section: Battle Arena - Pushed up as much as possible */}
       <div className="flex-1 w-full flex flex-col items-center justify-center min-h-0">

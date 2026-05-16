@@ -19,6 +19,7 @@ interface AuthContextType {
   loadingProfile: boolean;
   fetchProfile: (userId: string) => Promise<void>;
   upsertProfile: (username: string) => Promise<{ error: any }>;
+  onlineUsers: Set<string>;
 }
 
 const AuthContext = createContext<AuthContextType>({ 
@@ -27,7 +28,8 @@ const AuthContext = createContext<AuthContextType>({
   loading: true, 
   loadingProfile: false,
   fetchProfile: async () => {},
-  upsertProfile: async () => ({ error: null })
+  upsertProfile: async () => ({ error: null }),
+  onlineUsers: new Set()
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -35,6 +37,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
 
   const fetchProfile = async (userId: string) => {
     setLoadingProfile(true);
@@ -118,6 +121,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Handle Global Presence
+  useEffect(() => {
+    if (!user) {
+      setOnlineUsers(new Set());
+      return;
+    }
+
+    const presenceChannel = supabase.channel('global_presence', {
+      config: { presence: { key: user.id } }
+    });
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const activeIds = new Set(Object.keys(state));
+        setOnlineUsers(activeIds);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(presenceChannel);
+    };
+  }, [user]);
+
   return (
     <AuthContext.Provider value={{ 
       user, 
@@ -125,7 +156,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       loading, 
       loadingProfile, 
       fetchProfile, 
-      upsertProfile 
+      upsertProfile,
+      onlineUsers
     }}>
       {!loading && children}
     </AuthContext.Provider>

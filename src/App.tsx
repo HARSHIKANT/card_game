@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import GlobalPingListener from './components/GlobalPingListener';
 import Home from './pages/Home';
 import Lobby from './pages/Lobby';
 import GameBoard from './pages/GameBoard';
@@ -7,6 +8,7 @@ import GameBoard from './pages/GameBoard';
 function App() {
   return (
     <AuthProvider>
+      <GlobalPingListener />
       <Router>
         <Routes>
           <Route path="/" element={<Home />} />

@@ -2,6 +2,15 @@ import { create } from 'zustand';
 import { audio } from '../lib/audio';
 import { PlayerCard, GameRole, GameStatus, PlayResult, PlayHistoryItem } from '../types';
 
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: number;
+  imageUrl?: string;
+}
+
 interface GameState {
   roomId: string | null;
   role: GameRole | null;
@@ -31,7 +40,14 @@ interface GameState {
   lastPlayResult: PlayResult | null;
   playHistory: PlayHistoryItem[];
 
+  // Ephemeral Chat State
+  activeChatFriendId: string | null;
+  ephemeralMessages: Record<string, ChatMessage[]>;
+
   // Actions
+  setActiveChatFriendId: (id: string | null) => void;
+  addEphemeralMessage: (friendId: string, msg: ChatMessage) => void;
+  clearEphemeralMessages: (friendId: string) => void;
   initGame: (roomId: string, role: GameRole, userId: string, isBotMode?: boolean) => void;
   setMyDeck: (deck: PlayerCard[]) => void;
   setBotDeck: (deck: PlayerCard[]) => void;
@@ -78,6 +94,22 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   lastPlayResult: null,
   playHistory: [],
+  
+  activeChatFriendId: null,
+  ephemeralMessages: {},
+  
+  setActiveChatFriendId: (id) => set({ activeChatFriendId: id }),
+  addEphemeralMessage: (friendId, msg) => set(state => ({
+    ephemeralMessages: {
+      ...state.ephemeralMessages,
+      [friendId]: [...(state.ephemeralMessages[friendId] || []), msg]
+    }
+  })),
+  clearEphemeralMessages: (friendId) => set(state => {
+    const newState = { ...state.ephemeralMessages };
+    delete newState[friendId];
+    return { ephemeralMessages: newState };
+  }),
   
   initGame: (roomId, role, userId, isBotMode = false) => set({
     roomId, role, userId, isBotMode,

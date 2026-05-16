@@ -1,10 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Search, Swords, Shuffle, Trophy, Users, X, Bell } from 'lucide-react';
+import { Loader2, Search, Swords, Shuffle, Trophy, Users, X, Bell, UserPlus, UserCheck, UserX, MessageCircle, BellRing } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { useGameStore } from '../store/useGameStore';
+import LiveChat from '../components/LiveChat';
 
 type Mode = 'quick' | 'friend' | null;
+type FriendTab = 'friends' | 'pending' | 'search';
 
 interface PlayerResult {
   id: string;
@@ -22,7 +25,7 @@ interface IncomingInvite {
 
 function Lobby() {
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { user, profile, onlineUsers } = useAuth();
 
   // Mode
   const [mode, setMode] = useState<Mode>(null);
@@ -41,9 +44,166 @@ function Lobby() {
   // Incoming invite (can arrive in either mode)
   const [incomingInvite, setIncomingInvite] = useState<IncomingInvite | null>(null);
 
+  // Friends system
+  const [friendTab, setFriendTab] = useState<FriendTab>('friends');
+  const [friends, setFriends] = useState<PlayerResult[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<{profile: PlayerResult, friendshipId: string}[]>([]);
+  const [sentRequestIds, setSentRequestIds] = useState<string[]>([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [chatWithFriend, setChatWithFriend] = useState<PlayerResult | null>(null);
+  const setActiveChatFriendId = useGameStore(state => state.setActiveChatFriendId);
+  const [pingCooldown, setPingCooldown] = useState<string | null>(null); // userId of friend on cooldown
+  const [receivedPings, setReceivedPings] = useState<{id: string, senderName: string, created_at: string}[]>([]);
+
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const quickChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const senderChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  // Sync active chat to store
+  useEffect(() => {
+    setActiveChatFriendId(chatWithFriend?.id || null);
+    return () => setActiveChatFriendId(null);
+  }, [chatWithFriend, setActiveChatFriendId]);
+
+  // ─── Friends Helpers ────────────────────────────────────────────────────────
+  const sortIds = (a: string, b: string): [string, string] => a < b ? [a, b] : [b, a];
+
+  const fetchFriends = useCallback(async () => {
+    if (!user) return;
+    setLoadingFriends(true);
+    const { data } = await supabase
+      .from('friendships')
+      .select('user_id1, user_id2')
+      .eq('status', 'accepted')
+      .or(`user_id1.eq.${user.id},user_id2.eq.${user.id}`);
+    if (data && data.length > 0) {
+      const friendIds = data.map(f => f.user_id1 === user.id ? f.user_id2 : f.user_id1);
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, username, email, matches_played, matches_won')
+        .in('id', friendIds);
+      setFriends(profiles || []);
+    } else { setFriends([]); }
+    setLoadingFriends(false);
+  }, [user]);
+
+  const fetchPending = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('friendships')
+      .select('id, user_id1, user_id2, action_user_id')
+      .eq('status', 'pending')
+      .or(`user_id1.eq.${user.id},user_id2.eq.${user.id}`)
+      .neq('action_user_id', user.id);
+    if (data && data.length > 0) {
+      const senderIds = data.map(f => f.action_user_id);
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, username, email, matches_played, matches_won')
+        .in('id', senderIds);
+      setPendingRequests(data.map(f => ({
+        friendshipId: f.id,
+        profile: (profiles || []).find(p => p.id === f.action_user_id)!
+      })).filter(r => r.profile));
+    } else { setPendingRequests([]); }
+  }, [user]);
+
+  const fetchSentRequests = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('friendships')
+      .select('user_id1, user_id2')
+      .eq('status', 'pending')
+      .eq('action_user_id', user.id);
+    if (data) {
+      setSentRequestIds(data.map(f => f.user_id1 === user.id ? f.user_id2 : f.user_id1));
+    }
+  }, [user]);
+
+  const sendFriendRequest = async (targetId: string) => {
+    if (!user) return;
+    const [id1, id2] = sortIds(user.id, targetId);
+    await supabase.from('friendships').upsert({
+      user_id1: id1, user_id2: id2,
+      action_user_id: user.id, status: 'pending'
+    }, { onConflict: 'user_id1,user_id2' });
+    setSentRequestIds(prev => [...prev, targetId]);
+  };
+
+  const respondToFriendRequest = async (friendshipId: string, accept: boolean) => {
+    await supabase.from('friendships')
+      .update({ status: accept ? 'accepted' : 'declined' })
+      .eq('id', friendshipId);
+    fetchPending();
+    if (accept) fetchFriends();
+  };
+
+  // Send a Ping to a friend (Broadcast + DB)
+  const sendPing = async (target: PlayerResult) => {
+    if (!user || !profile || pingCooldown === target.id) return;
+    setPingCooldown(target.id);
+
+    // 1. Persist to DB
+    await supabase.from('pings').insert({
+      sender_id: user.id,
+      receiver_id: target.id,
+    });
+
+    // 2. Broadcast for instant delivery
+    const ch = supabase.channel(`pings_${target.id}`);
+    await new Promise<void>(r => ch.subscribe(s => s === 'SUBSCRIBED' && r()));
+    await ch.send({
+      type: 'broadcast', event: 'ping',
+      payload: { from: user.id, fromName: profile.username, timestamp: Date.now() }
+    });
+    ch.unsubscribe();
+
+    // 10s cooldown
+    setTimeout(() => setPingCooldown(null), 10000);
+  };
+
+  // Fetch received pings for inbox
+  const fetchReceivedPings = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('pings')
+      .select('id, sender_id, is_read, created_at')
+      .eq('receiver_id', user.id)
+      .eq('is_read', false)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (data && data.length > 0) {
+      const senderIds = [...new Set(data.map(p => p.sender_id))];
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, username')
+        .in('id', senderIds);
+      const nameMap = new Map((profiles || []).map(p => [p.id, p.username]));
+      setReceivedPings(data.map(p => ({
+        id: p.id,
+        senderName: nameMap.get(p.sender_id) || 'Unknown',
+        created_at: p.created_at,
+      })));
+    } else { setReceivedPings([]); }
+  }, [user]);
+
+  const markAllPingsRead = async () => {
+    if (!user) return;
+    await supabase.from('pings')
+      .update({ is_read: true })
+      .eq('receiver_id', user.id)
+      .eq('is_read', false);
+    setReceivedPings([]);
+  };
+
+  useEffect(() => {
+    if (mode === 'friend' && user) {
+      fetchFriends();
+      fetchPending();
+      fetchSentRequests();
+      fetchReceivedPings();
+    }
+  }, [mode, user]);
 
   // ─── Search Players ───────────────────────────────────────────────────────
   const searchPlayers = useCallback(async (query: string) => {
@@ -347,7 +507,7 @@ function Lobby() {
           </div>
         )}
 
-        {/* ── Friend Search Panel ── */}
+        {/* ── Friends & Search Panel ── */}
         {mode === 'friend' && (
           <div className="w-full flex flex-col gap-4">
 
@@ -374,79 +534,302 @@ function Lobby() {
               </div>
             )}
 
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by username..."
-                className="w-full bg-slate-800 border border-slate-700 focus:border-orange-500 rounded-2xl pl-12 pr-4 py-3.5 text-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all placeholder-slate-500 font-medium"
-              />
-              {searching && <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-400 animate-spin" />}
+            {/* ── Friend Sub-Tabs ── */}
+            <div className="w-full flex gap-1 bg-slate-800/60 p-1 rounded-xl border border-slate-700/50">
+              <button
+                onClick={() => setFriendTab('friends')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg font-bold text-xs transition-all ${friendTab === 'friends' ? 'bg-green-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <UserCheck className="w-3.5 h-3.5" /> My Friends
+              </button>
+              <button
+                onClick={() => setFriendTab('pending')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg font-bold text-xs transition-all relative ${friendTab === 'pending' ? 'bg-yellow-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Bell className="w-3.5 h-3.5" /> Pending
+                {pendingRequests.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                    {pendingRequests.length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setFriendTab('search')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg font-bold text-xs transition-all ${friendTab === 'search' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Search className="w-3.5 h-3.5" /> Search
+              </button>
             </div>
 
-            {/* Search Results */}
-            {searchQuery.trim().length >= 2 && !searching && searchResults.length === 0 && (
-              <div className="w-full text-center py-8 text-slate-500 text-sm">
-                No players found for "<span className="text-slate-300">{searchQuery}</span>"
+            {/* ── My Friends Tab ── */}
+            {friendTab === 'friends' && (
+              <div className="flex flex-col gap-2">
+                {loadingFriends ? (
+                  <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 text-green-400 animate-spin" /></div>
+                ) : friends.length === 0 ? (
+                  <div className="text-center py-10 flex flex-col items-center gap-3 text-slate-600">
+                    <Users className="w-10 h-10 opacity-30" />
+                    <p className="text-sm">No friends yet. Search and add players!</p>
+                  </div>
+                ) : (
+                  friends
+                    .sort((a, b) => {
+                      const aOnline = onlineUsers.has(a.id);
+                      const bOnline = onlineUsers.has(b.id);
+                      if (aOnline && !bOnline) return -1;
+                      if (!aOnline && bOnline) return 1;
+                      return a.username.localeCompare(b.username);
+                    })
+                    .map((friend) => {
+                      const isOnline = onlineUsers.has(friend.id);
+                      return (
+                    <div key={friend.id} className="w-full bg-slate-800/80 border border-slate-700/50 hover:border-green-500/40 rounded-2xl p-4 flex items-center gap-3 transition-all group">
+                      <div className="relative w-11 h-11 rounded-xl bg-gradient-to-br from-green-600 to-emerald-600 flex items-center justify-center text-white font-black text-base flex-shrink-0 shadow-lg">
+                        {friend.username.charAt(0).toUpperCase()}
+                        <div className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-slate-800 ${isOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-slate-500'}`}></div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-bold truncate text-sm leading-tight flex items-center gap-2">
+                          {friend.username}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                            <Trophy className="w-2.5 h-2.5 text-yellow-400" />
+                            {friend.matches_won}W / {friend.matches_played}P
+                          </span>
+                          {friend.matches_played > 0 && (
+                            <span className={`text-[10px] font-bold ${winRate(friend) >= 60 ? 'text-green-400' : winRate(friend) >= 40 ? 'text-yellow-400' : 'text-slate-400'}`}>
+                              {winRate(friend)}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex gap-1.5 flex-shrink-0">
+                        <button
+                          onClick={() => sendInvite(friend)}
+                          disabled={!!sentInviteTo}
+                          className="flex items-center gap-1 bg-orange-500 hover:bg-orange-400 disabled:opacity-40 text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg transition-all"
+                        >
+                          <Swords className="w-3 h-3" /> Challenge
+                        </button>
+                        <button
+                          onClick={() => sendPing(friend)}
+                          disabled={pingCooldown === friend.id}
+                          className="flex items-center gap-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg transition-all"
+                        >
+                          <BellRing className="w-3 h-3" /> {pingCooldown === friend.id ? 'Sent!' : 'Ping'}
+                        </button>
+                        <button
+                          onClick={() => setChatWithFriend(friend)}
+                          className="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg transition-all"
+                        >
+                          <MessageCircle className="w-3 h-3" /> Chat
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            )}
+
+            {/* ── Inbox Tab (Friend Requests + Ping History) ── */}
+            {friendTab === 'pending' && (
+              <div className="flex flex-col gap-4">
+                {/* Friend Requests Section */}
+                {pendingRequests.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold px-1">Friend Requests</p>
+                    {pendingRequests.map(({ profile: requester, friendshipId }) => (
+                      <div key={friendshipId} className="w-full bg-slate-800/80 border border-yellow-500/20 rounded-2xl p-4 flex items-center gap-3 transition-all">
+                        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-yellow-600 to-amber-600 flex items-center justify-center text-white font-black text-base flex-shrink-0 shadow-lg">
+                          {requester.username.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-bold truncate text-sm">{requester.username}</p>
+                          <p className="text-slate-400 text-[10px]">wants to be your friend</p>
+                        </div>
+                        <div className="flex gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => respondToFriendRequest(friendshipId, true)}
+                            className="flex items-center gap-1 bg-green-600 hover:bg-green-500 text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg transition-all"
+                          >
+                            <UserCheck className="w-3 h-3" /> Accept
+                          </button>
+                          <button
+                            onClick={() => respondToFriendRequest(friendshipId, false)}
+                            className="flex items-center gap-1 bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg transition-all"
+                          >
+                            <UserX className="w-3 h-3" /> Decline
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Ping History Section */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between px-1">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Recent Pings</p>
+                    {receivedPings.length > 0 && (
+                      <button
+                        onClick={markAllPingsRead}
+                        className="text-[10px] text-blue-400 hover:text-blue-300 font-bold transition-colors"
+                      >
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+                  {receivedPings.length === 0 && pendingRequests.length === 0 ? (
+                    <div className="text-center py-10 flex flex-col items-center gap-3 text-slate-600">
+                      <Bell className="w-10 h-10 opacity-30" />
+                      <p className="text-sm">Your inbox is empty</p>
+                    </div>
+                  ) : receivedPings.length === 0 ? (
+                    <p className="text-slate-600 text-xs text-center py-4">No pings yet</p>
+                  ) : (
+                    receivedPings.map((ping) => (
+                      <div key={ping.id} className="w-full bg-slate-800/60 border border-blue-500/10 rounded-xl p-3 flex items-center gap-3">
+                        <div className="w-8 h-8 bg-blue-600/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <BellRing className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white text-xs font-medium truncate">
+                            <span className="text-blue-400 font-bold">{ping.senderName}</span> pinged you
+                          </p>
+                          <p className="text-slate-500 text-[10px] mt-0.5">
+                            {new Date(ping.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })} at {new Date(ping.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
 
-            <div className="flex flex-col gap-2">
-              {searchResults.map((player) => (
-                <div
-                  key={player.id}
-                  className="w-full bg-slate-800/80 border border-slate-700/50 hover:border-orange-500/40 rounded-2xl p-4 flex items-center gap-4 transition-all group"
-                >
-                  {/* Avatar placeholder */}
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white font-black text-lg flex-shrink-0 shadow-lg">
-                    {player.username.charAt(0).toUpperCase()}
-                  </div>
-
-                  {/* Player info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-bold truncate text-base leading-tight">{player.username}</p>
-                    {player.email && (
-                      <p className="text-slate-500 text-[11px] truncate">{player.email}</p>
-                    )}
-                    <div className="flex items-center gap-3 mt-1">
-                      <span className="text-xs text-slate-400 flex items-center gap-1">
-                        <Trophy className="w-3 h-3 text-yellow-400" />
-                        {player.matches_won}W / {player.matches_played}P
-                      </span>
-                      {player.matches_played > 0 && (
-                        <span className={`text-xs font-bold ${winRate(player) >= 60 ? 'text-green-400' : winRate(player) >= 40 ? 'text-yellow-400' : 'text-slate-400'}`}>
-                          {winRate(player)}% WR
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Challenge button */}
-                  <button
-                    onClick={() => sendInvite(player)}
-                    disabled={!!sentInviteTo}
-                    className="flex-shrink-0 flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs px-3 py-2 rounded-xl transition-all group-hover:shadow-lg group-hover:shadow-orange-900/30"
-                  >
-                    <Swords className="w-3.5 h-3.5" />
-                    Challenge
-                  </button>
+            {/* ── Search Tab ── */}
+            {friendTab === 'search' && (
+              <>
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by username..."
+                    className="w-full bg-slate-800 border border-slate-700 focus:border-orange-500 rounded-2xl pl-12 pr-4 py-3.5 text-white focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all placeholder-slate-500 font-medium"
+                  />
+                  {searching && <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-400 animate-spin" />}
                 </div>
-              ))}
-            </div>
 
-            {/* Hint when no search yet */}
-            {searchQuery.trim().length < 2 && !sentInviteTo && (
-              <div className="text-center py-8 flex flex-col items-center gap-3 text-slate-600">
-                <Search className="w-10 h-10 opacity-30" />
-                <p className="text-sm">Type at least 2 characters to find a player</p>
-              </div>
+                {searchQuery.trim().length >= 2 && !searching && searchResults.length === 0 && (
+                  <div className="w-full text-center py-8 text-slate-500 text-sm">
+                    No players found for "<span className="text-slate-300">{searchQuery}</span>"
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-2">
+                  {searchResults.map((player) => {
+                    const isFriend = friends.some(f => f.id === player.id);
+                    const isRequested = sentRequestIds.includes(player.id);
+                    return (
+                      <div
+                        key={player.id}
+                        className="w-full bg-slate-800/80 border border-slate-700/50 hover:border-orange-500/40 rounded-2xl p-4 flex items-center gap-3 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white font-black text-base flex-shrink-0 shadow-lg">
+                          {player.username.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-bold truncate text-sm leading-tight">{player.username}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                              <Trophy className="w-2.5 h-2.5 text-yellow-400" />
+                              {player.matches_won}W / {player.matches_played}P
+                            </span>
+                            {player.matches_played > 0 && (
+                              <span className={`text-[10px] font-bold ${winRate(player) >= 60 ? 'text-green-400' : winRate(player) >= 40 ? 'text-yellow-400' : 'text-slate-400'}`}>
+                                {winRate(player)}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => sendInvite(player)}
+                            disabled={!!sentInviteTo}
+                            className="flex items-center gap-1 bg-orange-500 hover:bg-orange-400 disabled:opacity-40 text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg transition-all"
+                          >
+                            <Swords className="w-3 h-3" /> Challenge
+                          </button>
+                          {isFriend ? (
+                            <span className="flex items-center gap-1 text-green-400 font-bold text-[10px] px-2.5 py-1.5">
+                              <UserCheck className="w-3 h-3" /> Friend
+                            </span>
+                          ) : isRequested ? (
+                            <span className="flex items-center gap-1 text-yellow-400 font-bold text-[10px] px-2.5 py-1.5">
+                              <Bell className="w-3 h-3" /> Sent
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => sendFriendRequest(player.id)}
+                              className="flex items-center gap-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg transition-all"
+                            >
+                              <UserPlus className="w-3 h-3" /> Add
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {searchQuery.trim().length < 2 && !sentInviteTo && (
+                  <div className="text-center py-8 flex flex-col items-center gap-3 text-slate-600">
+                    <Search className="w-10 h-10 opacity-30" />
+                    <p className="text-sm">Type at least 2 characters to find a player</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
       </div>
+
+      {/* Friend Chat Overlay */}
+      {chatWithFriend && user && (
+        <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="relative w-full max-w-md h-[80vh] bg-slate-900 rounded-2xl border border-slate-700 overflow-hidden shadow-2xl flex flex-col">
+            <div className="flex justify-between items-center p-4 border-b border-slate-800 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-green-600 to-emerald-600 flex items-center justify-center text-white font-black text-sm">
+                  {chatWithFriend.username.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-white font-bold text-sm">{chatWithFriend.username}</p>
+                  <p className="text-green-400 text-[10px] flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Ephemeral Chat
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setChatWithFriend(null)} className="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <LiveChat
+                mode="direct"
+                recipientId={chatWithFriend.id}
+                userId={user.id}
+                userName={profile?.username || 'Player'}
+                embedded
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -41,10 +41,33 @@ CREATE TABLE public.matches (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- 4. Create Friendships Table
+CREATE TABLE public.friendships (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id1 UUID REFERENCES public.profiles(id) NOT NULL,
+  user_id2 UUID REFERENCES public.profiles(id) NOT NULL,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined')),
+  action_user_id UUID REFERENCES public.profiles(id) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  UNIQUE(user_id1, user_id2),
+  CHECK (user_id1 < user_id2)
+);
+
+-- 5. Create Pings Table (friend notifications with timestamps)
+CREATE TABLE public.pings (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  sender_id UUID REFERENCES public.profiles(id) NOT NULL,
+  receiver_id UUID REFERENCES public.profiles(id) NOT NULL,
+  is_read BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.players ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.matches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.friendships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pings ENABLE ROW LEVEL SECURITY;
 
 -- Create basic RLS policies
 -- Anyone can read players
@@ -59,6 +82,16 @@ CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING
 CREATE POLICY "Matches are viewable by everyone" ON public.matches FOR SELECT USING (true);
 CREATE POLICY "Authenticated users can create matches" ON public.matches FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 CREATE POLICY "Players involved can update match" ON public.matches FOR UPDATE USING (auth.uid() = player1_id OR auth.uid() = player2_id);
+
+-- Friendships Policies
+CREATE POLICY "Users can view their own friendships" ON public.friendships FOR SELECT USING (auth.uid() = user_id1 OR auth.uid() = user_id2);
+CREATE POLICY "Users can create friend requests" ON public.friendships FOR INSERT WITH CHECK (auth.uid() = action_user_id AND (auth.uid() = user_id1 OR auth.uid() = user_id2));
+CREATE POLICY "Users can update their own friendships" ON public.friendships FOR UPDATE USING (auth.uid() = user_id1 OR auth.uid() = user_id2);
+
+-- Pings Policies
+CREATE POLICY "Users can view received pings" ON public.pings FOR SELECT USING (auth.uid() = receiver_id);
+CREATE POLICY "Users can send pings" ON public.pings FOR INSERT WITH CHECK (auth.uid() = sender_id);
+CREATE POLICY "Users can mark own pings read" ON public.pings FOR UPDATE USING (auth.uid() = receiver_id);
 
 -- ============================================================
 -- CRITICAL: Stat-update Trigger
