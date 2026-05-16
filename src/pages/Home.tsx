@@ -1,9 +1,36 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Play, Trophy, Users, LogIn, UserCircle, Settings } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import ProfileModal from '../components/ProfileModal';
+import Card from '../components/Card';
+import { PlayerCard } from '../types';
+
+const playHapticSound = () => {
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(300, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.05);
+
+    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.05);
+
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.05);
+  } catch (e) {
+    // Ignore if audio context fails
+  }
+};
 
 function Home() {
   const navigate = useNavigate();
@@ -14,6 +41,17 @@ function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [landingCards, setLandingCards] = useState<PlayerCard[]>([]);
+
+  useEffect(() => {
+    const fetchLandingCards = async () => {
+      const { data, error } = await supabase.from('players').select('*').limit(6);
+      if (data && data.length > 0 && !error) {
+        setLandingCards(data as PlayerCard[]);
+      }
+    };
+    fetchLandingCards();
+  }, []);
 
   const handleAuth = async (type: 'login' | 'signup') => {
     setLoading(true);
@@ -59,12 +97,78 @@ function Home() {
       </div>
 
       <div className="z-10 flex flex-col items-center w-full max-w-sm sm:max-w-lg">
-        <h1 className="text-4xl sm:text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-blue-400 to-orange-400 mb-3 sm:mb-4 text-center tracking-tight leading-tight">
-          CRICKET BATTLE
-        </h1>
-        <p className="text-slate-400 text-sm sm:text-lg mb-6 sm:mb-8 text-center max-w-md">
-          Collect cards, build your dream 11, and crush your opponents in real-time 1v1 multiplayer matches.
-        </p>
+        {/* Fanned Cards Display */}
+        <div className="relative w-[300px] sm:w-[400px] h-[160px] sm:h-[200px] md:h-[220px] flex justify-center items-end mb-4 pointer-events-auto z-20 mt-4">
+          {landingCards.map((card, i) => {
+            const angle = (i - 2.5) * 12; 
+            const translateY = Math.abs(i - 2.5) * 12; 
+            const translateX = (i - 2.5) * 35; 
+
+            return (
+              <div 
+                key={card.id}
+                onMouseEnter={playHapticSound}
+                onTouchStart={playHapticSound}
+                className="absolute bottom-0 origin-bottom transition-all duration-300 hover:z-30 cursor-pointer"
+                style={{ 
+                  transform: `translateX(${translateX}px) translateY(${translateY}px) rotate(${angle}deg)`,
+                  zIndex: 10 + i
+                }}
+              >
+                <div className="transform scale-[0.55] sm:scale-[0.65] md:scale-[0.75] hover:-translate-y-6 hover:scale-[0.6] sm:hover:scale-[0.7] md:hover:scale-[0.8] transition-transform duration-300 drop-shadow-[0_15px_15px_rgba(0,0,0,0.6)]">
+                  <Card {...card} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Styled Title */}
+        <div 
+          className="relative z-30 flex flex-col items-center cursor-default transition-transform duration-300 hover:scale-105"
+          onMouseEnter={playHapticSound}
+          onTouchStart={playHapticSound}
+        >
+          <h1 
+            className="text-6xl sm:text-7xl md:text-8xl text-yellow-400 mb-1 text-center transition-colors duration-300 hover:text-yellow-300 whitespace-nowrap"
+            style={{
+              fontFamily: '"Luckiest Guy", cursive',
+              WebkitTextStroke: '2px #222',
+              textShadow: '0px 6px 0 #b45309, 0px 10px 20px rgba(0,0,0,0.7)',
+              letterSpacing: '0.02em',
+              lineHeight: '1.1'
+            }}
+          >
+            <span className="md:hidden">CRICKET<br/>BATTLE</span>
+            <span className="hidden md:inline">CRICKET - BATTLE</span>
+          </h1>
+        </div>
+
+        {/* Floating Feature Badges */}
+        <div className="fixed inset-0 pointer-events-none overflow-hidden z-20">
+          {[
+            { emoji: '🃏', label: 'COLLECT', sub: 'CARDS', pos: 'top-[8%] left-[4%] sm:top-[12%] sm:left-[15%]', anim: 'animate-float' },
+            { emoji: '🏏', label: 'DREAM 11', sub: 'BUILD', pos: 'top-[15%] right-[4%] sm:top-[20%] sm:right-[15%]', anim: 'animate-float-delayed' },
+            { emoji: '⚡', label: 'REAL-TIME', sub: '1V1', pos: 'bottom-[45%] left-[2%] sm:bottom-[35%] sm:left-[10%]', anim: 'animate-float-slow' },
+            { emoji: '🏆', label: 'WINNER', sub: 'GLORY', pos: 'bottom-[40%] right-[2%] sm:bottom-[30%] sm:right-[10%]', anim: 'animate-float' },
+          ].map((f, i) => (
+            <div 
+              key={i}
+              className={`absolute ${f.pos} ${f.anim} pointer-events-auto group cursor-default flex`}
+              onMouseEnter={playHapticSound}
+              onTouchStart={playHapticSound}
+            >
+              <div className="flex flex-col items-center justify-center bg-slate-800/40 backdrop-blur-md border border-slate-700/50 p-2 sm:p-4 rounded-2xl shadow-xl transform transition-transform group-hover:scale-110 group-hover:bg-slate-700/60">
+                <span className="text-lg sm:text-3xl mb-0.5 sm:mb-1">{f.emoji}</span>
+                <div className="text-center">
+                  <p className="text-[8px] sm:text-xs font-black text-blue-400 leading-none tracking-tighter">{f.label}</p>
+                  <p className="text-[6px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mt-0.5 sm:mt-1">{f.sub}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
 
         {user ? (
           <div className="w-full flex flex-col gap-3 sm:gap-4">

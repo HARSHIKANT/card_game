@@ -225,7 +225,7 @@ export default function CricketAnimationPanel({ runs, ballId, isBothSelected }: 
         if (pFrame.current >= 0) {
           s.phase = 'deliver'; pFrame.current = 0;
           s.ballX = RIGHT_SX; s.ballY = STUMP_Y + 10; s.ballVis = true;
-          pVX.current = -12; pVY.current = -5;
+          pVX.current = -20; pVY.current = -5;
           s.capturedRuns = s.runs ?? 0;
         }
       } else if (s.phase === 'deliver') {
@@ -379,8 +379,8 @@ export default function CricketAnimationPanel({ runs, ballId, isBothSelected }: 
         </g>
         {rs.flashAlpha > 0 && <rect width={VW} height={VH} fill={rs.flashRed ? `rgba(239,68,68,${rs.flashAlpha})` : `rgba(251,191,36,${rs.flashAlpha})`} />}
         {rs.labelAlpha > 0 && (
-          <g transform={`translate(${dims.vW / 2 + dims.vbX},${dims.vH * 0.3 + dims.vbY}) scale(${rs.labelScale * (dims.isMobile ? 0.6 : (dims.vW < 1100 && dims.vH < 700 ? 0.45 : 1))})`} opacity={rs.labelAlpha}>
-            <text x={0} y={0} textAnchor="middle" dominantBaseline="middle" fontFamily="'Arial Black', sans-serif" fontWeight={900} fontSize={dims.isMobile ? 56 : 72} fill={rs.labelColor} style={{ filter: 'drop-shadow(0 0 25px rgba(0,0,0,0.9))' }}>
+          <g transform={`translate(${dims.vW / 2 + dims.vbX},${dims.vH * 0.3 + dims.vbY}) scale(${rs.labelScale * (dims.isMobile ? 0.65 : Math.max(0.45, Math.min(1, dims.vW / 1200)))})`} opacity={rs.labelAlpha}>
+            <text x={0} y={0} textAnchor="middle" dominantBaseline="middle" fontFamily="'Arial Black', sans-serif" fontWeight={900} fontSize={dims.isMobile ? 48 : 72} fill={rs.labelColor} style={{ filter: 'drop-shadow(0 0 25px rgba(0,0,0,0.9))' }}>
               {rs.label}
             </text>
           </g>

@@ -283,13 +283,16 @@ const LiveChat = memo(({ mode = 'match', recipientId, channelId, userId, userNam
       {/* Chat Panel */}
       <div className={`${embedded ? 'relative w-full h-full' : 'fixed sm:absolute inset-0 sm:inset-auto sm:right-0 sm:top-0 sm:bottom-0 sm:w-80'} bg-slate-900/98 backdrop-blur-xl ${!embedded ? 'border-l border-slate-700' : ''} flex flex-col shadow-2xl z-40 transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         {!embedded && (
-          <div className="flex justify-between items-center p-4 border-b border-slate-800">
+          <div className="flex justify-between items-center p-3 sm:p-4 border-b border-slate-800 bg-slate-800/50 sm:bg-transparent">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-              <h3 className="text-base font-bold text-white tracking-tight">Live Chat</h3>
+              <h3 className="text-sm sm:text-base font-bold text-white tracking-tight">Live Chat</h3>
             </div>
-            <button onClick={() => setIsOpen(false)} className="text-slate-400 hover:text-white bg-slate-800 p-1.5 rounded-full transition-colors">
-              <X className="w-4 h-4" />
+            <button 
+              onClick={() => setIsOpen(false)} 
+              className="text-slate-400 hover:text-white bg-slate-700/80 sm:bg-slate-800 p-2 sm:p-1.5 rounded-full transition-colors flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0"
+            >
+              <X className="w-5 h-5 sm:w-4 sm:h-4" />
             </button>
           </div>
         )}

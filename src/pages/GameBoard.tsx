@@ -29,9 +29,9 @@ const ScoreBoard = memo(({ role, hostName, guestName }: { role: GameRole, hostNa
         <p className="text-2xl sm:text-3xl font-bold">{hostScore}</p>
       </div>
       
-      <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 px-3 sm:px-4 py-1.5 rounded-full flex items-center gap-1.5 sm:gap-2 shadow-lg whitespace-nowrap">
+      <div className="absolute -bottom-3.5 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-full flex items-center gap-1 sm:gap-2 shadow-lg whitespace-nowrap z-10">
          <Clock className={`w-3 h-3 sm:w-4 sm:h-4 ${timeLeft <= 5 ? 'text-red-400 animate-pulse' : 'text-blue-400'}`} />
-         <span className={`font-mono font-bold text-xs sm:text-sm ${timeLeft <= 5 ? 'text-red-400' : 'text-slate-200'}`}>
+         <span className={`font-mono font-bold text-[10px] sm:text-sm ${timeLeft <= 5 ? 'text-red-400' : 'text-slate-200'}`}>
            00:{timeLeft.toString().padStart(2, '0')}
          </span>
       </div>
@@ -61,15 +61,15 @@ const PlayHistorySidebar = memo(() => {
 
   return (
     <>
-      {/* Toggle Button — repositioned for mobile so it doesn't overlap ScoreBoard */}
+      {/* Toggle Button — stacked below Chat button to avoid collision */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="absolute right-3 top-3 sm:right-4 sm:top-4 z-30 bg-slate-800 p-2 sm:p-2.5 rounded-full border border-slate-600 shadow-xl hover:bg-slate-700 transition-colors"
+        className="absolute right-3 top-[108px] sm:right-4 sm:top-4 z-30 bg-slate-800 p-2.5 sm:p-2.5 rounded-full border border-slate-600 shadow-xl hover:bg-slate-700 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
         title="Toggle Ball History"
       >
-        <History className="w-4 h-4 sm:w-6 sm:h-6 text-slate-300" />
+        <History className="w-5 h-5 sm:w-6 sm:h-6 text-slate-300" />
         {playHistory.length > 0 && !isOpen && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1 py-0.5 rounded-full leading-none">
+          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center leading-none">
             {playHistory.length}
           </span>
         )}
@@ -79,7 +79,7 @@ const PlayHistorySidebar = memo(() => {
       <div className={`fixed sm:absolute inset-0 sm:inset-auto sm:right-0 sm:top-0 sm:bottom-0 sm:w-72 bg-slate-800/98 backdrop-blur-md border-l border-slate-700 p-4 overflow-y-auto shadow-2xl z-40 transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="flex justify-between items-center mb-4 sticky top-0 bg-slate-800/98 py-2 border-b border-slate-700 z-10">
           <h3 className="text-lg sm:text-xl font-bold text-slate-200">Ball History</h3>
-          <button onClick={() => setIsOpen(false)} className="text-slate-400 hover:text-white bg-slate-700 p-1.5 rounded-full">
+          <button onClick={() => setIsOpen(false)} className="text-slate-400 hover:text-white bg-slate-700 p-2 sm:p-1.5 rounded-full min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -418,7 +418,7 @@ const GameBoard: React.FC = () => {
   const amIBatting = battingRole === role;
 
   return (
-    <div className="w-full min-h-screen bg-slate-950 flex text-white overflow-hidden relative">
+    <div className="w-full h-dvh bg-slate-950 flex text-white overflow-hidden relative">
 
       {/* ── Cricket Stadium Background (Full Screen) ── */}
       <div className="absolute inset-0 z-0 pointer-events-none">
@@ -432,10 +432,10 @@ const GameBoard: React.FC = () => {
       </div>
 
       {/* ── Game Content ── */}
-      <div className="h-screen w-full min-w-0 px-2 sm:px-4 flex flex-col items-center relative z-10 overflow-hidden">
+      <div className="h-dvh w-full min-w-0 px-2 sm:px-4 flex flex-col items-center relative z-10 overflow-x-hidden overflow-y-hidden">
 
       {/* Top Section: ScoreBoard - Compressed for Nest Hub */}
-      <div className={`w-full px-4 sm:px-6 flex flex-col items-center flex-shrink-0 ${isShortScreen ? 'mt-0 mb-0 scale-90' : 'mt-1 sm:mt-2 mb-1 sm:mb-2'}`}>
+      <div className={`w-full px-2 sm:px-6 flex flex-col items-center flex-shrink-0 ${isShortScreen ? 'mt-0 mb-0 scale-90' : 'mt-1 sm:mt-2 mb-3 sm:mb-2'}`}>
         <ScoreBoard 
           role={role} 
           hostName={role === 'host' ? (profile?.username || 'You') : opponentName}
@@ -464,9 +464,9 @@ const GameBoard: React.FC = () => {
       <div className="flex-1 w-full flex flex-col items-center justify-center min-h-0">
         
         {/* Opponent Hand Section - Very compact */}
-        <div className="w-full flex flex-col items-center mb-1 sm:mb-2 flex-shrink-0 h-[75px] sm:h-[105px]">
+        <div className="w-full flex flex-col items-center mb-0.5 sm:mb-2 flex-shrink-0 h-[55px] sm:h-[105px]">
           <p className="text-slate-500 mb-0.5 text-[8px] sm:text-[10px] font-bold uppercase tracking-wider">Opponent ({opponentDeckCount})</p>
-          <div className="flex justify-center opacity-20 pointer-events-none scale-75 sm:scale-90">
+          <div className="flex justify-center opacity-20 pointer-events-none scale-[0.6] sm:scale-90">
              {Array.from({ length: Math.min(opponentDeckCount, 8) }).map((_, i) => (
                <div key={i} className="w-[45px] h-[65px] sm:w-[70px] sm:h-[105px] bg-slate-800 rounded shadow-md border border-slate-700 -ml-4 sm:-ml-6 first:ml-0" />
              ))}
@@ -474,7 +474,7 @@ const GameBoard: React.FC = () => {
         </div>
 
         {/* Battle Area - Balanced for Nest Hub */}
-        <div className={`flex gap-2 sm:gap-16 items-center justify-center min-h-[100px] sm:min-h-[245px] ${isShortScreen ? 'scale-[0.7] -my-10' : 'scale-[0.85] sm:scale-100'}`}>
+        <div className={`flex gap-2 sm:gap-16 items-center justify-center max-w-5xl mx-auto min-h-[90px] sm:min-h-[245px] ${isShortScreen ? 'scale-[0.7] -my-10' : 'scale-[0.7] sm:scale-[0.85] md:scale-100'}`}>
            <div className="w-[100px] h-[170px] sm:w-[140px] sm:h-[245px] md:w-[155px] md:h-[270px] flex items-center justify-center">
              {opponentReady ? (
                mySelectedCard && opponentHiddenCard ? (
@@ -510,25 +510,25 @@ const GameBoard: React.FC = () => {
       </div>
 
       {/* ── Bottom Section: Your Hand - Pushed to the extreme bottom ── */}
-      <div className="w-full pb-1 flex-shrink-0 relative z-20">
+      <div className="w-full pb-1 pb-safe flex-shrink-0 relative z-20">
         <div className={`w-full transition-opacity duration-300 ${mySelectedCard ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-          <div className="flex flex-col items-center gap-1 sm:gap-2">
+          <div className="flex flex-col items-center gap-0.5 sm:gap-2">
             <div className="flex items-center gap-4">
               <div className="h-[1px] w-12 sm:w-20 bg-gradient-to-r from-transparent to-orange-500/30"></div>
               <h2 className="text-[9px] sm:text-xs font-bold tracking-[0.2em] text-orange-500/60 uppercase">Your Hand</h2>
               <div className="h-[1px] w-12 sm:w-20 bg-gradient-to-l from-transparent to-orange-500/30"></div>
             </div>
             
-            {/* Hand Scroll Container - Fixed Clipping & Balanced for Nest Hub */}
-            <div className={`w-full overflow-x-auto no-scrollbar pb-2 ${isShortScreen ? 'pt-2 mt-0' : 'pt-12 -mt-11'}`}>
-              <div className={`flex justify-start sm:justify-center min-w-max mx-auto px-6 sm:px-10 ${isShortScreen ? '-space-x-8' : 'gap-2 sm:gap-4'}`}>
+            {/* Hand Scroll Container - Touch-friendly with scroll hints */}
+            <div className={`w-full overflow-x-auto no-scrollbar scroll-touch-x scroll-hint-x pb-2 ${isShortScreen ? 'pt-2 mt-0' : 'pt-4 sm:pt-12 -mt-3 sm:-mt-11'}`}>
+              <div className={`flex justify-start sm:justify-center min-w-max mx-auto px-6 sm:px-10 ${isShortScreen ? '-space-x-8' : '-space-x-2 sm:space-x-0 sm:gap-4'}`}>
                  {myDeck.map((player) => (
                    <div 
                      key={player.id} 
                      onClick={() => !isAnimating && handlePlayCard(player)}
                      className={`transition-all duration-300 active:scale-95 py-0.5 
-                        ${isAnimating ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:-translate-y-3 hover:z-50'}
-                        ${isShortScreen ? 'scale-[0.75] origin-bottom' : ''}
+                        ${isAnimating ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:-translate-y-3 hover:z-50 active:-translate-y-1'}
+                        ${isShortScreen ? 'scale-[0.75] origin-bottom' : 'scale-[0.85] sm:scale-100 origin-bottom'}
                      `}
                    >
                      <Card {...player} />
@@ -544,8 +544,8 @@ const GameBoard: React.FC = () => {
       {(status === 'finished' || status === 'forfeited') && (
         <div className="absolute inset-0 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 p-6 sm:p-12 rounded-2xl sm:rounded-3xl border border-slate-700 text-center shadow-2xl w-full max-w-sm sm:max-w-md">
-            <h2 className="text-3xl sm:text-5xl font-black text-white mb-3 sm:mb-4">MATCH OVER</h2>
-            <p className="text-lg sm:text-2xl text-slate-300 mb-6 sm:mb-8">
+            <h2 className="text-2xl sm:text-5xl font-black text-white mb-3 sm:mb-4">MATCH OVER</h2>
+            <p className="text-base sm:text-2xl text-slate-300 mb-6 sm:mb-8">
               {status === 'forfeited' ? "🏆 You Won! (Forfeit)" :
                hostScore === guestScore ? "It's a Tie!" : 
                (hostScore > guestScore && role === 'host') || (guestScore > hostScore && role === 'guest') 
