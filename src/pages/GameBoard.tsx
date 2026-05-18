@@ -10,6 +10,9 @@ import LiveChat from '../components/LiveChat';
 import { Loader2, Clock, WifiOff, History, X } from 'lucide-react';
 import { GameRole, PlayerCard } from '../types';
 import CricketAnimationPanel from '../components/CricketAnimationPanel';
+import CoinTossAnimation from '../components/CoinTossAnimation';
+import TossInteractionPanel from '../components/TossInteractionPanel';
+import { TossCall, TossDecision } from '../types';
 
 // ==========================================
 // ScoreBoard Component (Extracted for Perf)
@@ -39,7 +42,7 @@ const ScoreBoard = memo(({ role, hostName, guestName }: { role: GameRole, hostNa
       <div className="text-center flex flex-col items-center flex-shrink-0 px-2 sm:px-4">
         <div className="bg-blue-600 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-[9px] sm:text-xs font-bold mb-0.5 sm:mb-1">Inn {inning}/2</div>
         <p className="text-xs sm:text-base font-semibold hidden sm:block">{battingRole === 'host' ? `${hostName} Batting` : `${guestName} Batting`}</p>
-        <p className="text-[9px] sm:hidden font-semibold text-blue-300">{battingRole === 'host' ? 'Host Bat' : 'Guest Bat'}</p>
+        <p className="text-[9px] sm:hidden font-semibold text-blue-300">{battingRole === 'host' ? `${hostName} Bat` : `${guestName} Bat`}</p>
         <p className="text-[9px] sm:text-sm text-slate-400">T: {turnNumber}/11</p>
       </div>
       <div className="text-center min-w-0 flex-1">
@@ -186,11 +189,21 @@ const GameBoard: React.FC = () => {
   const initGame = useGameStore(s => s.initGame);
   const setMyDeck = useGameStore(s => s.setMyDeck);
   const setBotDeck = useGameStore(s => s.setBotDeck);
-  const startGame = useGameStore(s => s.startGame);
   const setOpponentDisconnected = useGameStore(s => s.setOpponentDisconnected);
   const selectCard = useGameStore(s => s.selectCard);
   const setOpponentHiddenCard = useGameStore(s => s.setOpponentHiddenCard);
   const applyResolvedTurn = useGameStore(s => s.applyResolvedTurn);
+  
+  // Toss State & Actions
+  const tossCall = useGameStore(s => s.tossCall);
+  const tossCaller = useGameStore(s => s.tossCaller);
+  const tossResult = useGameStore(s => s.tossResult);
+  const tossWinner = useGameStore(s => s.tossWinner);
+  const initTossCall = useGameStore(s => s.initTossCall);
+  const setTossAnimation = useGameStore(s => s.setTossAnimation);
+  const setTossDecisionPhase = useGameStore(s => s.setTossDecisionPhase);
+  const finalizeToss = useGameStore(s => s.finalizeToss);
+
   const tickDisconnectTimer = useGameStore(s => s.tickDisconnectTimer);
   const tickTurnTimer = useGameStore(s => s.tickTurnTimer);
 
@@ -222,8 +235,7 @@ const GameBoard: React.FC = () => {
 
     if (isBot) {
       setTimeout(() => {
-        const tossWinner = Math.random() > 0.5 ? 'host' : 'guest';
-        startGame(tossWinner);
+        initTossCall();
       }, 1000);
       return;
     }
@@ -248,27 +260,48 @@ const GameBoard: React.FC = () => {
 
         if (useGameStore.getState().status === 'playing') {
           setOpponentDisconnected(usersCount < 2);
+        } else if (useGameStore.getState().status === 'waiting' && usersCount === 2 && role === 'host') {
+          setTimeout(() => {
+            gameChannel.send({ type: 'broadcast', event: 'init_toss_call', payload: {} });
+            initTossCall();
+          }, 500);
         }
       })
-      .on('broadcast', { event: 'start_game' }, ({ payload }) => {
-        startGame(payload.firstBatter);
+      .on('broadcast', { event: 'init_toss_call' }, () => {
+        initTossCall();
+      })
+      .on('broadcast', { event: 'toss_called' }, ({ payload }) => {
+        if (role === 'host' && useGameStore.getState().status === 'toss_call' && !useGameStore.getState().tossCaller) {
+          const coinResult = Math.random() > 0.5 ? 'heads' : 'tails';
+          const winnerRole = payload.call === coinResult ? payload.caller : (payload.caller === 'host' ? 'guest' : 'host');
+          gameChannel.send({
+            type: 'broadcast',
+            event: 'toss_resolved',
+            payload: { caller: payload.caller, call: payload.call, result: coinResult, winner: winnerRole }
+          });
+          setTossAnimation(payload.caller, payload.call, coinResult, winnerRole);
+        }
+      })
+      .on('broadcast', { event: 'toss_resolved' }, ({ payload }) => {
+        setTossAnimation(payload.caller, payload.call, payload.result, payload.winner);
+      })
+      .on('broadcast', { event: 'toss_decision_made' }, ({ payload }) => {
+        finalizeToss(payload.battingRole);
       })
       .on('broadcast', { event: 'card_played' }, ({ payload }) => {
         if (payload.userId !== user.id) {
           setOpponentHiddenCard(payload.card);
-          // Resolution is handled entirely inside handlePlayCard (2s delay)
-          // so Host and Guest both reveal at the same time. Do NOT resolve here.
         }
       })
       .on('broadcast', { event: 'turn_resolved' }, ({ payload }) => {
          if (role === 'guest') {
             setAnimationRuns(payload.runs);
-            setBallId(Date.now()); // Unique trigger
+            setBallId(Date.now());
             setIsAnimating(true);
             setTimeout(() => {
                applyResolvedTurn(payload.runs, payload.opponentCard, payload.myCard);
                setIsAnimating(false);
-            }, 1800); // Perfect sync for flight + reaction
+            }, 1800);
          }
       })
       .subscribe(async (status) => {
@@ -277,17 +310,6 @@ const GameBoard: React.FC = () => {
             user_id: user.id, 
             username: profile?.username || user.email?.split('@')[0] 
           });
-          if (role === 'host') {
-            setTimeout(() => {
-              const tossWinner = Math.random() > 0.5 ? 'host' : 'guest';
-              gameChannel.send({
-                type: 'broadcast',
-                event: 'start_game',
-                payload: { firstBatter: tossWinner }
-              });
-              startGame(tossWinner);
-            }, 500); // Reduced toss delay
-          }
         }
       });
 
@@ -296,7 +318,45 @@ const GameBoard: React.FC = () => {
     return () => {
       gameChannel.unsubscribe();
     };
-  }, [user?.id, roomId, role, navigate, initGame, setMyDeck, setBotDeck, startGame, setOpponentDisconnected, setOpponentHiddenCard, applyResolvedTurn]);
+  }, [user?.id, roomId, role, navigate, initGame, setMyDeck, setBotDeck, setOpponentDisconnected, setOpponentHiddenCard, applyResolvedTurn, initTossCall, setTossAnimation, finalizeToss]);
+
+  // Bot Toss Decision Logic
+  useEffect(() => {
+    if (status === 'toss_decision' && isBotMode && tossWinner === 'guest') {
+      const botDecision = Math.random() > 0.5 ? 'bat' : 'bowl';
+      const battingRole = botDecision === 'bat' ? 'guest' : 'host';
+      setTimeout(() => finalizeToss(battingRole), 1000);
+    }
+  }, [status, isBotMode, tossWinner, finalizeToss]);
+
+  // Event Handlers for Toss
+  const handleMakeCall = (call: TossCall) => {
+    if (tossCaller) return;
+    if (isBotMode) {
+      const coinResult = Math.random() > 0.5 ? 'heads' : 'tails';
+      const winnerRole = call === coinResult ? 'host' : 'guest';
+      setTossAnimation('host', call, coinResult, winnerRole);
+    } else {
+      const currentChannel = channel || supabase.getChannels().find(c => c.topic === `realtime:room_${roomId}`);
+      if (currentChannel) {
+        currentChannel.send({ type: 'broadcast', event: 'toss_called', payload: { caller: role, call } });
+      }
+    }
+  };
+
+  const handleMakeDecision = (decision: TossDecision) => {
+    if (tossWinner !== role) return;
+    const battingRole = decision === 'bat' ? role : (role === 'host' ? 'guest' : 'host');
+    if (isBotMode) {
+      finalizeToss(battingRole);
+    } else {
+      const currentChannel = channel || supabase.getChannels().find(c => c.topic === `realtime:room_${roomId}`);
+      if (currentChannel) {
+        currentChannel.send({ type: 'broadcast', event: 'toss_decision_made', payload: { battingRole } });
+      }
+      finalizeToss(battingRole);
+    }
+  };
 
   // Match Recording (multiplayer only — CPU matches are not recorded)
   useEffect(() => {
@@ -417,8 +477,32 @@ const GameBoard: React.FC = () => {
 
   const amIBatting = battingRole === role;
 
+  const hostDisplayName = role === 'host' ? (profile?.username || 'You') : opponentName;
+  const guestDisplayName = role === 'guest' ? (profile?.username || 'You') : (isBotMode ? 'BOT' : opponentName);
+
   return (
     <div className="w-full h-dvh bg-slate-950 flex text-white overflow-hidden relative">
+
+      {/* ── Toss Animation Overlay ── */}
+      {status === 'tossing' && tossResult && (
+        <CoinTossAnimation 
+          result={tossResult}
+          onComplete={setTossDecisionPhase} 
+        />
+      )}
+
+      {/* ── Toss Interaction Panel ── */}
+      {(status === 'toss_call' || status === 'toss_decision') && (
+        <TossInteractionPanel
+          status={status}
+          role={role as GameRole}
+          tossCaller={tossCaller}
+          tossCall={tossCall}
+          tossWinner={tossWinner}
+          onMakeCall={handleMakeCall}
+          onMakeDecision={handleMakeDecision}
+        />
+      )}
 
       {/* ── Cricket Stadium Background (Full Screen) ── */}
       <div className="absolute inset-0 z-0 pointer-events-none">
@@ -438,8 +522,8 @@ const GameBoard: React.FC = () => {
       <div className={`w-full px-2 sm:px-6 flex flex-col items-center flex-shrink-0 ${isShortScreen ? 'mt-0 mb-0 scale-90' : 'mt-1 sm:mt-2 mb-3 sm:mb-2'}`}>
         <ScoreBoard 
           role={role} 
-          hostName={role === 'host' ? (profile?.username || 'You') : opponentName}
-          guestName={role === 'guest' ? (profile?.username || 'You') : (isBotMode ? 'CPU' : opponentName)}
+          hostName={hostDisplayName}
+          guestName={guestDisplayName}
         />
         {opponentDisconnected && status !== 'forfeited' && (
           <div className="mt-1 bg-red-500 text-white px-4 py-0.5 rounded-full flex items-center gap-2 shadow-2xl animate-pulse border-2 border-red-300 text-[10px]">
@@ -553,17 +637,17 @@ const GameBoard: React.FC = () => {
             </p>
             <div className="flex justify-center gap-6 sm:gap-8 mb-6 sm:mb-8">
                <div className="text-center">
-                 <p className="text-slate-400 text-sm">Host</p>
+                 <p className="text-slate-400 text-sm font-semibold">{hostDisplayName}</p>
                  <p className="text-3xl sm:text-4xl font-bold text-white">{hostScore}</p>
                </div>
                <div className="text-center">
-                 <p className="text-slate-400 text-sm">Guest</p>
+                 <p className="text-slate-400 text-sm font-semibold">{guestDisplayName}</p>
                  <p className="text-3xl sm:text-4xl font-bold text-white">{guestScore}</p>
                </div>
             </div>
             <div className="flex flex-col gap-2 sm:gap-3">
               <button 
-                onClick={() => navigate('/lobby')}
+                onClick={() => navigate(isBotMode ? `/game/bot_match_${Date.now()}?role=host` : '/lobby')}
                 className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 sm:py-4 px-8 rounded-xl w-full text-base sm:text-lg shadow-[0_0_20px_rgba(249,115,22,0.4)] transition-colors"
               >
                 Play Again

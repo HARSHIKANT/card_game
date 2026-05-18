@@ -26,7 +26,9 @@ export interface PlayHistoryItem {
 }
 
 export type GameRole = 'host' | 'guest';
-export type GameStatus = 'waiting' | 'playing' | 'finished' | 'forfeited';
+export type GameStatus = 'waiting' | 'toss_call' | 'tossing' | 'toss_decision' | 'playing' | 'finished' | 'forfeited';
+export type TossCall = 'heads' | 'tails';
+export type TossDecision = 'bat' | 'bowl';
 
 export interface UserProfile {
   id: string;

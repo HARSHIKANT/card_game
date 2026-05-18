@@ -23,6 +23,7 @@ export function useBotEngine(_roomId: string) {
       // Purely random card selection
       const randomIndex = Math.floor(Math.random() * currentBotDeck.length);
       const selectedCard = currentBotDeck[randomIndex];
+      console.log(randomIndex);
 
       // Play the card
       removeBotCard(selectedCard.id!);

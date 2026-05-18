@@ -6,31 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import ProfileModal from '../components/ProfileModal';
 import Card from '../components/Card';
 import { PlayerCard } from '../types';
-
-const playHapticSound = () => {
-  try {
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContext) return;
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gainNode = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(300, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.05);
-
-    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.05);
-
-    osc.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    osc.start();
-    osc.stop(ctx.currentTime + 0.05);
-  } catch (e) {
-    // Ignore if audio context fails
-  }
-};
+import { audio } from '../lib/audio';
 
 function Home() {
   const navigate = useNavigate();
@@ -107,8 +83,8 @@ function Home() {
             return (
               <div 
                 key={card.id}
-                onMouseEnter={playHapticSound}
-                onTouchStart={playHapticSound}
+                onMouseEnter={audio.playHapticSound}
+                onTouchStart={audio.playHapticSound}
                 className="absolute bottom-0 origin-bottom transition-all duration-300 hover:z-30 cursor-pointer"
                 style={{ 
                   transform: `translateX(${translateX}px) translateY(${translateY}px) rotate(${angle}deg)`,
@@ -126,8 +102,8 @@ function Home() {
         {/* Styled Title */}
         <div 
           className="relative z-30 flex flex-col items-center cursor-default transition-transform duration-300 hover:scale-105"
-          onMouseEnter={playHapticSound}
-          onTouchStart={playHapticSound}
+          onMouseEnter={audio.playHapticSound}
+          onTouchStart={audio.playHapticSound}
         >
           <h1 
             className="text-6xl sm:text-7xl md:text-8xl text-yellow-400 mb-1 text-center transition-colors duration-300 hover:text-yellow-300 whitespace-nowrap"
@@ -155,8 +131,8 @@ function Home() {
             <div 
               key={i}
               className={`absolute ${f.pos} ${f.anim} pointer-events-auto group cursor-default flex`}
-              onMouseEnter={playHapticSound}
-              onTouchStart={playHapticSound}
+              onMouseEnter={audio.playHapticSound}
+              onTouchStart={audio.playHapticSound}
             >
               <div className="flex flex-col items-center justify-center bg-slate-800/40 backdrop-blur-md border border-slate-700/50 p-2 sm:p-4 rounded-2xl shadow-xl transform transition-transform group-hover:scale-110 group-hover:bg-slate-700/60">
                 <span className="text-lg sm:text-3xl mb-0.5 sm:mb-1">{f.emoji}</span>

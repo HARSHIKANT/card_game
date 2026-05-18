@@ -44,6 +44,12 @@ interface GameState {
   activeChatFriendId: string | null;
   ephemeralMessages: Record<string, ChatMessage[]>;
 
+  // Toss State
+  tossCall: TossCall | null;
+  tossCaller: GameRole | null;
+  tossResult: TossCall | null;
+  tossWinner: GameRole | null;
+
   // Actions
   setActiveChatFriendId: (id: string | null) => void;
   addEphemeralMessage: (friendId: string, msg: ChatMessage) => void;
@@ -54,7 +60,12 @@ interface GameState {
   setOpponentDisconnected: (isDisconnected: boolean) => void;
   tickDisconnectTimer: () => void;
   tickTurnTimer: (onAutoPlay: () => void) => void;
-  startGame: (firstBatter: GameRole) => void;
+  
+  // Toss Flow Actions
+  initTossCall: () => void;
+  setTossAnimation: (caller: GameRole, call: TossCall, result: TossCall, winner: GameRole) => void;
+  setTossDecisionPhase: () => void;
+  finalizeToss: (battingRole: GameRole) => void;
   
   selectCard: (card: PlayerCard) => void;
   setOpponentHiddenCard: (card: PlayerCard) => void;
@@ -95,6 +106,11 @@ export const useGameStore = create<GameState>((set, get) => ({
   lastPlayResult: null,
   playHistory: [],
   
+  tossCall: null,
+  tossCaller: null,
+  tossResult: null,
+  tossWinner: null,
+  
   activeChatFriendId: null,
   ephemeralMessages: {},
   
@@ -133,6 +149,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     playHistory: [],
     opponentDisconnected: false,
     disconnectTimer: 30,
+    tossCall: null,
+    tossCaller: null,
+    tossResult: null,
+    tossWinner: null,
   }),
   
   setMyDeck: (deck) => set({ myDeck: deck, initialMyDeck: deck, opponentDeckCount: deck.length }),
@@ -163,7 +183,27 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
   },
   
-  startGame: (firstBatter) => set({ 
+  initTossCall: () => set({
+    status: 'toss_call',
+    tossCall: null,
+    tossCaller: null,
+    tossResult: null,
+    tossWinner: null,
+  }),
+
+  setTossAnimation: (caller, call, result, winner) => set({
+    status: 'tossing',
+    tossCaller: caller,
+    tossCall: call,
+    tossResult: result,
+    tossWinner: winner
+  }),
+
+  setTossDecisionPhase: () => set({
+    status: 'toss_decision'
+  }),
+
+  finalizeToss: (firstBatter) => set({ 
     status: 'playing', 
     battingRole: firstBatter, 
     inning: 1, 
